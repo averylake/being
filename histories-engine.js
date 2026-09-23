@@ -1,0 +1,45 @@
+/* Local, versioned study. Loaded only by breath-histories.html. */
+(()=>{
+const originalCreate=AccountEngine.create,VERSION='accounts-of-being/histories-5',S=1000;
+const DEFAULT={hand:44,print:23,image:28,code:17,tokens:72};
+globalThis.HistoryMix={defaults:()=>({...DEFAULT})};
+const make=(n=S)=>Object.assign(document.createElement('canvas'),{width:n,height:n});
+AccountEngine.create=async function(base='./'){
+ const engine=await originalCreate(base),handBytes=await engine.load(AccountMedia.HANDWRITING.path,AccountMedia.HANDWRITING.sha256),imageBytes=await engine.load(ACCOUNT_IMAGE.path,ACCOUNT_IMAGE.sha256),sourceBytes=await engine.load('histories-engine.js'),sourceHash=await AccountEngine.hash(sourceBytes);
+ const loadImage=async bytes=>{const url=URL.createObjectURL(new Blob([bytes]));try{return await new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src=url;});}finally{URL.revokeObjectURL(url);}};
+ const [hand,photo]=await Promise.all([loadImage(handBytes),loadImage(imageBytes)]);
+ const ink=make(),ig=ink.getContext('2d');ig.drawImage(hand,240,900,1070,390,100,350,800,292);const ip=ig.getImageData(0,0,S,S),pressure=Array(32).fill(0),counts=Array(32).fill(0);
+ for(let i=0;i<ip.data.length;i+=4){if(!ip.data[i+3])continue;const lum=(ip.data[i]+ip.data[i+1]+ip.data[i+2])/3,a=Math.max(0,Math.min(255,(125-lum)*5)),bin=Math.min(31,Math.floor((i/4%S)/S*32));pressure[bin]+=a/255;counts[bin]++;ip.data[i]=224;ip.data[i+1]=222;ip.data[i+2]=204;ip.data[i+3]=a;}ig.putImageData(ip,0,0);pressure.forEach((v,i)=>pressure[i]=counts[i]?v/counts[i]:0);
+ const cropped=make();cropped.getContext('2d').drawImage(photo,...ACCOUNT_IMAGE.displayViewport,0,0,S,S);
+ const photoSmall=make(32),pg=photoSmall.getContext('2d');pg.drawImage(photo,0,0,32,32);const pp=pg.getImageData(0,0,32,32).data;const tone=Array.from({length:32},(_,x)=>{let sum=0;for(let y=0;y<32;y++){const i=(y*32+x)*4;sum+=(pp[i]+pp[i+1]+pp[i+2])/765;}return sum/32;});
+ const cache=new Map();
+ function overlays(r){if(cache.has(r.seed))return cache.get(r.seed);const print=make(),p=print.getContext('2d'),code=make(),c=code.getContext('2d');p.fillStyle='#e0caa4';p.font='18px Georgia';for(let row=0;row<29;row++){p.globalAlpha=.4+(row%4)*.13;p.fillText((r.statement+'   ').repeat(5),55+(row%3)*17,100+row*29);}const bytes=new TextEncoder().encode(r.statement),bits=[...bytes].map(b=>b.toString(2).padStart(8,'0')).join('');c.fillStyle='#bfdfd4';c.font='11px monospace';for(let row=0;row<45;row++)for(let col=0;col<70;col++){c.globalAlpha=bits[(row*70+col)%bits.length]==='1'?.8:.22;c.fillText(bits[(row*70+col)%bits.length],30+col*14,50+row*20);}// Rebuild the boxed statement as real text, excluding the old lettering baked into the study.
+const study=make(),sg=study.getContext('2d');sg.save();sg.beginPath();sg.rect(0,0,S,S);sg.rect(578,413,286,60);sg.clip('evenodd');sg.fillStyle='#ededed';sg.fillRect(0,0,S,S);sg.drawImage(photo,83,43,395,836);sg.fillStyle='#0c0c0c';sg.fillRect(522,43,395,836);sg.restore();sg.fillStyle='#0c0c0c';sg.fillRect(578,413,286,60);sg.font='16px monospace';sg.textAlign='center';sg.textBaseline='middle';let left=583;for(const [word,width] of [['I',32],['took',66],['a',32],['breath',108],['.',35]]){sg.strokeStyle='#777';sg.lineWidth=.7;sg.strokeRect(left,419,width,47);sg.fillStyle='#ddd';sg.fillText(word,left+width/2,442.5);left+=width;}
+const item={print,code,study};cache.clear();cache.set(r.seed,item);return item;}
+ const raw=make(),mask=make(),layer=make();
+ function compose(target,r,size,seconds=null,reading=null){
+  const mix=r.histories?.mix||DEFAULT;
+  if(seconds===null)engine.render(raw,r,S);else engine.renderMotion(raw,r,S,seconds);
+  const mg=mask.getContext('2d');mg.drawImage(raw,0,0);const pixels=mg.getImageData(0,0,S,S);for(let i=0;i<pixels.data.length;i+=4){const l=Math.max(pixels.data[i],pixels.data[i+1],pixels.data[i+2]);pixels.data[i]=pixels.data[i+1]=pixels.data[i+2]=255;pixels.data[i+3]=Math.min(255,l*2.4);}mg.putImageData(pixels,0,0);
+  if(target.width!==size||target.height!==size)target.width=target.height=size;const g=target.getContext('2d');g.globalCompositeOperation='source-over';g.globalAlpha=1;g.fillStyle='#000';g.fillRect(0,0,size,size);g.globalAlpha=mix.tokens/100;g.drawImage(raw,0,0,size,size);g.globalCompositeOperation='screen';const o=overlays(r),lg=layer.getContext('2d');
+  for(const [name,source,amount] of [['image',mix.imageTreatment==='crop'?cropped:o.study,.28],['print',o.print,.23],['code',o.code,.17],['hand',ink,.44]]){lg.globalCompositeOperation='source-over';lg.clearRect(0,0,S,S);lg.drawImage(source,0,0,S,S);if(name!=='hand'){lg.globalCompositeOperation='destination-in';lg.drawImage(mask,0,0);}const phase=seconds===null?1:.9+.1*Math.cos(seconds/12*Math.PI*2+(name==='code'?2:name==='print'?4:0));g.globalAlpha=(mix[name]/100)*phase;g.drawImage(layer,0,0,size,size);}g.globalAlpha=1;g.globalCompositeOperation='source-over';
+ }
+ const wrapped={...engine};
+ wrapped.recipe=async(...args)=>{const r=await engine.recipe(...args);r.histories={version:VERSION,sourceSHA256:sourceHash,handwritingSHA256:AccountMedia.HANDWRITING.sha256,imageSHA256:ACCOUNT_IMAGE.sha256,pressure,tone,printRule:'repeated-setting-29-rows',encoding:'UTF-8',composition:'Together',mix:{...DEFAULT,imageTreatment:'study'},sourceRole:'artist-shared-source-material'};
+  // The scanned gesture changes contour parameters; source-image tone changes surface density.
+  r.layers=r.layers.map((l,i)=>({...l,parameters:l.parameters.map((v,j)=>j===0||j===1||j===2?Math.max(0,Math.min(1,v*.86+pressure[(i*7+j)%32]*.14)):j===9?v*.9+tone[i%32]*.1:v)}));r.seed=await AccountEngine.hash(JSON.stringify([r.seed,r.histories,r.layers]));return r;};
+ wrapped.render=(c,r,n,isolated=-1)=>isolated>=0?engine.render(c,r,n,isolated):compose(c,r,n);wrapped.renderMotion=(c,r,n,s)=>compose(c,r,n,s);wrapped.renderReading=(c,r,n,mode)=>compose(c,r,n,null,mode);
+ wrapped.output=async(r,size=2400)=>{const canvas=make(size);compose(canvas,r,size);const pixelSHA256=await AccountEngine.hash(canvas.getContext('2d').getImageData(0,0,size,size).data),blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png')),bytes=new Uint8Array(await blob.arrayBuffer());return {canvas,blob,bytes,pixelSHA256,artworkSHA256:await AccountEngine.hash(bytes)};};
+ return wrapped;
+};
+globalThis.HistoryReading={set(record){
+ const host=document.getElementById('histories-controls');host.replaceChildren();let mix={...(record.histories.mix||DEFAULT)},memory={...DEFAULT},timer;
+ const together=document.createElement('button');together.type='button';together.className='mix-reset';together.textContent='Reset';together.setAttribute('aria-label','Restore the balanced mix of all five media');host.append(together);
+ const rows=document.createElement('div');rows.className='mix-rows';host.append(rows);
+ const refresh=()=>{for(const row of rows.children){const key=row.dataset.medium;row.querySelector('input[type=checkbox]').checked=mix[key]>0;row.querySelector('input[type=range]').value=mix[key];row.querySelector('output').textContent=mix[key]+'%';row.classList.toggle('muted',mix[key]===0);}together.setAttribute('aria-pressed',String(Object.keys(DEFAULT).every(k=>mix[k]===DEFAULT[k])));};
+ const change=()=>{if(globalThis.canAdjustHistory&&!globalThis.canAdjustHistory()){mix={...record.histories.mix};refresh();return;}refresh();globalThis.previewHistoryMix({...mix});clearTimeout(timer);timer=setTimeout(()=>globalThis.selectHistoryRendering({...mix}),300);};
+ for(const [key,label]of [['hand','Handwriting'],['print','Print'],['image','Image'],['code','Binary'],['tokens','Tokens']]){const row=document.createElement('div');row.className='mix-row';row.dataset.medium=key;const name=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.setAttribute('aria-label','Include '+label);name.append(check,document.createTextNode(label));const range=document.createElement('input');range.type='range';range.min=0;range.max=100;range.step=1;range.setAttribute('aria-label',label+' strength');const value=document.createElement('output');value.setAttribute('aria-hidden','true');check.onchange=()=>{if(check.checked)mix[key]=memory[key]||DEFAULT[key];else{memory[key]=mix[key];mix[key]=0;}change();};range.oninput=()=>{mix[key]=Number(range.value);if(mix[key])memory[key]=mix[key];change();};row.append(name,range,value);rows.append(row);}
+ const treatment=document.createElement('label');treatment.className='image-treatment';treatment.textContent='Image source ';const select=document.createElement('select');select.setAttribute('aria-label','Image source');for(const [value,label] of [['study','Full study · with seam'],['crop','Cropped image']]){const option=document.createElement('option');option.value=value;option.textContent=label;select.append(option);}select.value=mix.imageTreatment||'study';select.onchange=()=>{mix.imageTreatment=select.value;change();};treatment.append(select);host.append(treatment);
+ together.onclick=()=>{mix={...DEFAULT,imageTreatment:'study'};select.value='study';change();};refresh();
+}};
+})();
